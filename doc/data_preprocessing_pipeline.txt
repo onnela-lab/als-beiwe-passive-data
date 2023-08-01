@@ -1,0 +1,118 @@
+
+
+# ------------------------------------------------------------------------------
+1. Process participants' demographics data  
+
+1.1. Clean participants data received from Berry's team 
+  * Use R script: /R/data_preprocessing/participants_other_clean_start_end_dates_Y-m-d.R
+  * Output: /data_participants_other_processed/beiwe_2_0_start_and_end_dates_clean.csv
+
+
+# ------------------------------------------------------------------------------
+2. Beiwe data surveys
+
+2.1. Download Beiwe raw survey data with Mano
+  * Use IPython notebook script: /ipynb/download_beiwe_surveys_Y-m-d.ipynb
+  * Note: this require Beiwe data download credentials to construct so called "Keyring" object
+  * Output: [multiple individual files within the directory] /data_beiwe_raw
+  
+2.2. Process survey timings stream 
+  * Use R script: /R/data_preprocessing/beiwe_survey_pull_survey_timings_Y-m-d.R
+  * Output: data_beiwe_processed/surveys/survey_data_survey_timings.rds
+
+2.3. Process survey answers stream 
+  * Use R script: /R/data_preprocessing/beiwe_survey_pull_survey_answers_Y-m-d.R
+  * Output: data_beiwe_processed/surveys/survey_data_survey_answers.rds
+
+2.4. Combine survey answers and survey timings, clean 
+  * Use R script: /R/data_preprocessing/beiwe_survey_combine_and_clean_Y-m-d.R
+  * Output data: /data_beiwe_processed/surveys/survey_data_finalansweronly.csv
+
+2.5 Subset survey answers to keep ALSFRS-RSE complete answers only
+  * Use R script: /R/data_preprocessing/beiwe_survey_subset_alsfrsrse_Y-m-d.R
+  * Output: /data_beiwe_processed/surveys/survey_data_finalansweronly_complete_alsfrsrse.csv
+
+
+# ------------------------------------------------------------------------------
+3. Download sensors Beiwe data with Mano
+
+3.1 Download GPS
+  * Use: [AWS remote] /py/download_data_gps_AWS.py
+
+3.2 Download other ('calls', 'texts', 'survey_answers', 'survey_timings', 'power_state', 'identifiers')
+  * Use: [AWS remote] /py/download_data_other_AWS.py
+
+
+# ------------------------------------------------------------------------------
+4. Process Beiwe GPS data
+
+4.1. Produce file which is a subset of raw GPS data and contains first and last row of the data for each data file
+  * Use: [AWS remote] /py/process_data_gps_get_raw_subset_AWS.py
+  * Output: [AWS remote, then copied to local] /data_beiwe_processed/gps/raw_gps_subset.csv
+
+4.2. Locally (as there is an issue with installing "sf" lib on AWS linux) preprocess file from the previous step into a data frame with one record per (participant, day) describing first, last, numbr of distinct and trajectory of distinct: zipcode, state, time zone, country
+  * Use: /R/data_preprocessing/process_gps_raw_to_zipcode.R
+  * Output: /data_beiwe_processed/gps/gps_zip_tz_state_country.csv
+
+4.3. Use the file from the previous step to create a table that gives chunks of day dates for GPS preprocessing with Forest. This is to separately process data for periods of time where we identified that a participant has travelled. For example, if out of a year of time, a participant spent 3 months in Florida, we want to process GPS data from Florida separately so as their "home" location is identifed separately for those 3 months and "home time" GPS variable can be derived accordingly for those 3 months. 
+  * Use: /R/data_preprocessing/process_gps_zipcode_to_chunks.R
+  * Output: [local, then copied to AWS remote] /data_beiwe_processed/gps/gps_zip_tz_state_country_chunks.csv
+
+4.4. Preprocess data with Forest. Done separately for each subject-specific set of time chunks as identified (the time chunks) in previous step. 
+  * Use: [AWS remote] /py/process_data_gps_chunks_AWS.py
+
+4.5. Postprocess and aggregate Forest output data 
+  * Use: [AWS remote] /R/process_gps_forest_output.R
+  * Output: [AWS remote, then copied to local] /data_beiwe_processed/gps/gps_processed_daily.csv
+
+
+# ------------------------------------------------------------------------------
+5. Process Beiwe raw accelerometer data 
+
+5.1. Estimate noise level for each participant. This subject-specific value is then used in identifying steps from raw accelerometry data using Oak code. 
+  * Use: [AWS remote] /py/process_data_raw_acc_estimate_noise_AWS.py
+  * Output: [AWS remote] /data_beiwe_processed/accelerometer/noise_level.csv 
+
+5.2. Run Oak to estimate walking at t1sec -- sustained harmonic walking. Uses Oak software to identify steps from raw accelerometry data assuming basic set of parameters assumed for that population, plus parameter that ensures we identify sustained harmonic walking only by imposing threshold on how different subsequent steps can be (min_amp = 0.2, alpha = 2, beta = 5, step_freq = (1.1, 2.2), delta = 2). 
+  * Use: [AWS remote] /py/process_data_raw_acc_run_oak_t1sec_AWS_sustainedharmonic.py
+  * Output: [AWS remote; multiple files within directory] /data_beiwe_processed_0/accelerometer/oak_output_t1sec_allwalking_2022-11-23/
+
+5.3. Run aggregation of raw accelerometer data into t1min AI. AI stands for Activity Index -- an open-source statistic to aggregate raw accelerometer data into epoch-level data (here: 1 minute-long epoch). In other words, we aggregate three-dimensional subsecond-level raw accelerometer data time series into 1 number per minute. 
+  * Use: [AWS remote] /py/process_data_beiwe_raw_acc_to_ai_SHORT_AWS.py
+  * Output: [AWS remote; multiple files within directory] /data_beiwe_processed_0/accelerometer/ai_output_t1min/
+
+5.4. Get clean t1min AI 
+  * Use: [AWS remote] /R/data_preprocessing/bewie_raw_acc_define_ai_t1min_Y-m-d.R
+  * Output: [AWS remote, then copied to local] /data_beiwe_processed/accelerometer/beiwe_ai_t1min_et.rds
+  * Output: [AWS remote, then copied to local] /data_beiwe_processed/accelerometer/beiwe_ai_t1min.rds
+
+5.5. Get clean t1min Oak -- sustained harmonic walking only.
+  * Use: [AWS remote] /R/data_preprocessing/bewie_raw_acc_define_oak_t1min_sustainedharmonic_Y-m-d.R
+  * Output: [AWS remote, then copied to local] /data_beiwe_processed/accelerometer/beiwe_oak_t1min_et_sustainedharmonic.rds
+  
+5.6. Get clean t24hr AI. Aggregate minute-level AI into day-level AI. Several day-level measures are derived. 
+  * Use: /R/data_preprocessing/bewie_raw_acc_define_ai_t24hr_Y-m-d.R
+  * Output: /data_beiwe_processed/accelerometer/beiwe_ai_t24hr.rds
+
+5.7. Get clean t24hr Oak. Aggregate minute-level steps data into day-level steps variables. Several day-level measures are derived. Note: the R script produces different versions of the day-level steps variables. We require  ("conditioned on") 10 seconds of walking found in that minute to be included in the day-level variables derivation. Putting a condition is expected to limit the influence of potential spurious findings. 
+  * Use: /R/data_preprocessing/bbewie_raw_acc_define_oak_t24hr_cond_Y-m-d.R
+  * Output: /data_beiwe_processed/accelerometer/beiwe_oak_t24hr_et_sustainedharmonic_COND_10.rds 
+  
+
+# ------------------------------------------------------------------------------
+6. Process identifiers data 
+
+6.1. Process identifiers data files to get OS information
+- Use: /R/data_preprocessing/beiwe_identifiers_aggregate_Y-m-d.R
+- Output: /data_beiwe_processed/identifiers/beiwe_os.csv
+
+
+# ------------------------------------------------------------------------------
+7. Define analysis sample
+
+7.1. Define analysis sample. This defines: (a) set of Beiwe IDs for which analysis inclusion critera were met (minimum number of surveys, GPS valid data days, accelerometry valid data days)
+  * Use R script: /R/data_preprocessing/define_analysis_sample_t24h_Y-m-d.R
+  * Outcome: /results_objects/analysis_sample_beiwe_id.rds
+  * Outcome: /results_objects/analysis_sample_acc_et_time_date.rds
+  * Outcome: /results_objects/analysis_sample_gps_local_time_date.rds
+
